@@ -35,7 +35,7 @@
             android:hardwareAccelerated="true"
             android:label="Web2apk Studio"
             android:launchMode="singleTask"
-            android:screenOrientation="unspecified"
+            android:screenOrientation="portrait"
             android:windowSoftInputMode="adjustResize">
             <intent-filter>
                 <action android:name="android.intent.action.MAIN" />
