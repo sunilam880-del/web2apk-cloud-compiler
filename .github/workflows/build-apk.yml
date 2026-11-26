@@ -1,0 +1,44 @@
+name: Build Real Android APK (web2apk-studio)
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [ main, master ]
+
+permissions:
+  contents: write
+
+jobs:
+  build-android-apk:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up JDK 17
+        uses: actions/setup-java@v4
+        with:
+          java-version: '17'
+          distribution: 'temurin'
+
+      - name: Set up Android SDK
+        uses: android-actions/setup-android@v3
+
+      - name: Set up Gradle
+        uses: gradle/actions/setup-gradle@v3
+        with:
+          gradle-version: '8.4'
+
+      - name: Compile Real APK with Gradle
+        run: gradle assembleDebug --no-daemon
+
+      - name: Publish .apk Release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: build-${{ github.run_number }}
+          name: "Web2apk Studio v1.0.0 (Build ${{ github.run_number }})"
+          body: "Compiled Android app-debug.apk for com.app.web2apkstudio."
+          make_latest: true
+          files: app/build/outputs/apk/debug/app-debug.apk
+
+# Build queued: 2026-11-26T16:20:30.034Z
