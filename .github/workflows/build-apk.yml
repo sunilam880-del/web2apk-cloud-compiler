@@ -21,16 +21,48 @@ jobs:
           java-version: '17'
           distribution: 'temurin'
 
-      - name: Set up Android SDK
-        uses: android-actions/setup-android@v3
+      - name: Configure Android SDK 34
+        shell: bash
+        run: |
+          SDK_DIR="${ANDROID_HOME:-${ANDROID_SDK_ROOT:-/usr/local/lib/android/sdk}}"
+          if [ ! -d "$SDK_DIR" ]; then
+            mkdir -p "$HOME/android-sdk/cmdline-tools"
+            curl -fsSL https://dl.google.com/android/repository/commandlinetools-linux-11076708_latest.zip -o /tmp/cmdline-tools.zip
+            unzip -q /tmp/cmdline-tools.zip -d /tmp/cmdline-tmp
+            mv /tmp/cmdline-tmp/cmdline-tools "$HOME/android-sdk/cmdline-tools/latest"
+            SDK_DIR="$HOME/android-sdk"
+          fi
+          echo "ANDROID_HOME=$SDK_DIR" >> "$GITHUB_ENV"
+          echo "ANDROID_SDK_ROOT=$SDK_DIR" >> "$GITHUB_ENV"
+          echo "sdk.dir=$SDK_DIR" > local.properties
+          SDKMANAGER="$SDK_DIR/cmdline-tools/latest/bin/sdkmanager"
+          if [ ! -x "$SDKMANAGER" ]; then
+            SDKMANAGER="$(find "$SDK_DIR" -name sdkmanager -type f 2>/dev/null | head -n 1)"
+          fi
+          if [ -n "$SDKMANAGER" ]; then
+            yes | "$SDKMANAGER" --licenses >/dev/null 2>&1 || true
+            if [ ! -d "$SDK_DIR/platforms/android-34" ] || [ ! -d "$SDK_DIR/build-tools/34.0.0" ]; then
+              "$SDKMANAGER" "platform-tools" "platforms;android-34" "build-tools;34.0.0"
+            fi
+          fi
 
-      - name: Set up Gradle
-        uses: gradle/actions/setup-gradle@v3
-        with:
-          gradle-version: '8.4'
+      - name: Set up Gradle 8.4
+        shell: bash
+        run: |
+          GRADLE_DIR="/tmp/gradle-8.4"
+          if [ ! -x "$GRADLE_DIR/bin/gradle" ]; then
+            curl -fsSL https://services.gradle.org/distributions/gradle-8.4-bin.zip -o /tmp/gradle-8.4.zip
+            unzip -q /tmp/gradle-8.4.zip -d /tmp
+          fi
+          echo "$GRADLE_DIR/bin" >> "$GITHUB_PATH"
 
       - name: Compile Real APK with Gradle
-        run: gradle assembleDebug --no-daemon
+        shell: bash
+        run: |
+          find app/src/main/java -type f ! -path "app/src/main/java/com/app/web2apkstudio/MainActivity.java" -delete 2>/dev/null || true
+          rm -rf app/src/main/res/mipmap-anydpi-v26 app/src/main/res/layout app/src/main/res/drawable* 2>/dev/null || true
+          gradle assembleDebug --no-daemon --stacktrace
+          ls -lh app/build/outputs/apk/debug/app-debug.apk
 
       - name: Publish .apk Release
         uses: softprops/action-gh-release@v2
@@ -41,4 +73,4 @@ jobs:
           make_latest: true
           files: app/build/outputs/apk/debug/app-debug.apk
 
-# Build queued: 2026-11-26T17:07:56.481Z
+# Build queued: 2026-11-26T17:12:31.592Z
