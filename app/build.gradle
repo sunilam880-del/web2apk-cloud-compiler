@@ -3,14 +3,14 @@ plugins {
 }
 
 android {
-    namespace 'com.app.arushivoiceassistant'
+    namespace 'com.app.web2apkstudio'
     compileSdk 34
 
     defaultConfig {
-        applicationId 'com.app.arushivoiceassistant'
+        applicationId 'com.app.web2apkstudio'
         minSdk 24
         targetSdk 34
-        versionCode 21
+        versionCode 22
         versionName '1.0.0'
     }
 
