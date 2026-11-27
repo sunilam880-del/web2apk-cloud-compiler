@@ -40,6 +40,9 @@ import androidx.core.view.WindowInsetsCompat;
 import androidx.core.view.WindowInsetsControllerCompat;
 import java.io.File;
 import java.io.FileOutputStream;
+import java.io.InputStream;
+import java.net.HttpURLConnection;
+import java.net.URL;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.List;
@@ -154,7 +157,11 @@ public class MainActivity extends AppCompatActivity {
                 if (uri == null) return false;
                 String scheme = uri.getScheme() != null ? uri.getScheme().toLowerCase() : "";
                 if ("http".equals(scheme) || "https".equals(scheme)) {
-                    // Keep all navigation inside standalone WebView
+                    if (shouldOpenInChrome(uri)) {
+                        openInChromeBrowser(uri);
+                        return true;
+                    }
+                    // Keep app navigation inside standalone WebView
                     return false;
                 }
                 openExternalUri(uri);
@@ -233,8 +240,16 @@ public class MainActivity extends AppCompatActivity {
             try {
                 if (url != null && (url.startsWith("http://") || url.startsWith("https://"))) {
                     String fileName = URLUtil.guessFileName(url, contentDisposition, mimeType);
+                    boolean isApk = fileName.toLowerCase().endsWith(".apk")
+                            || url.toLowerCase().contains(".apk")
+                            || (mimeType != null && mimeType.contains("android.package-archive"));
+                    if (isApk) {
+                        String apkName = fileName.toLowerCase().endsWith(".apk") ? fileName : "app-debug.apk";
+                        startNativeApkDownloadAndInstall(url, apkName, "");
+                        return;
+                    }
                     DownloadManager.Request request = new DownloadManager.Request(Uri.parse(url));
-                    request.setMimeType(mimeType != null ? mimeType : "application/vnd.android.package-archive");
+                    request.setMimeType(mimeType != null ? mimeType : "application/octet-stream");
                     request.addRequestHeader("User-Agent", userAgent);
                     String cookies = CookieManager.getInstance().getCookie(url);
                     if (cookies != null && !cookies.isEmpty()) {
@@ -256,7 +271,130 @@ public class MainActivity extends AppCompatActivity {
         });
     }
 
+    private void startNativeApkDownloadAndInstall(String downloadUrl, String filename, String authHeader) {
+        String cleaned = filename != null ? filename.replaceAll("[^a-zA-Z0-9._-]", "_") : "app-debug.apk";
+        String safeName = cleaned.toLowerCase().endsWith(".apk") ? cleaned : cleaned + ".apk";
+        runOnUiThread(() -> Toast.makeText(MainActivity.this, "Downloading " + safeName + "...", Toast.LENGTH_SHORT).show());
+        new Thread(() -> {
+            HttpURLConnection conn = null;
+            try {
+                String currentUrl = downloadUrl;
+                for (int hop = 0; hop < 8; hop++) {
+                    URL urlObj = new URL(currentUrl);
+                    conn = (HttpURLConnection) urlObj.openConnection();
+                    conn.setInstanceFollowRedirects(false);
+                    conn.setConnectTimeout(20000);
+                    conn.setReadTimeout(60000);
+                    conn.setRequestProperty("User-Agent", "Web2App-Android");
+                    if (hop == 0 && authHeader != null && !authHeader.trim().isEmpty()) {
+                        conn.setRequestProperty("Authorization", authHeader);
+                        conn.setRequestProperty("Accept", "application/octet-stream");
+                    }
+                    int code = conn.getResponseCode();
+                    if (code == 301 || code == 302 || code == 303 || code == 307 || code == 308) {
+                        String nextLoc = conn.getHeaderField("Location");
+                        conn.disconnect();
+                        if (nextLoc == null || nextLoc.trim().isEmpty()) break;
+                        currentUrl = new URL(urlObj, nextLoc).toString();
+                        continue;
+                    }
+                    break;
+                }
+
+                if (conn == null || conn.getResponseCode() < 200 || conn.getResponseCode() >= 300) {
+                    runOnUiThread(() -> {
+                        Toast.makeText(MainActivity.this, "Opening download in Chrome...", Toast.LENGTH_SHORT).show();
+                        openInChromeBrowser(Uri.parse(downloadUrl));
+                    });
+                    return;
+                }
+
+                File downloadsDir = getExternalFilesDir(Environment.DIRECTORY_DOWNLOADS);
+                if (downloadsDir == null) {
+                    downloadsDir = getCacheDir();
+                }
+                File outFile = new File(downloadsDir, safeName);
+                try (InputStream input = conn.getInputStream();
+                     FileOutputStream fos = new FileOutputStream(outFile)) {
+                    byte[] buffer = new byte[16384];
+                    int read;
+                    while ((read = input.read(buffer)) != -1) {
+                        fos.write(buffer, 0, read);
+                    }
+                    fos.flush();
+                }
+                conn.disconnect();
+
+                runOnUiThread(() -> launchApkInstaller(outFile));
+            } catch (Exception e) {
+                if (conn != null) {
+                    conn.disconnect();
+                }
+                runOnUiThread(() -> {
+                    Toast.makeText(MainActivity.this, "Opening download in Chrome...", Toast.LENGTH_SHORT).show();
+                    openInChromeBrowser(Uri.parse(downloadUrl));
+                });
+            }
+        }).start();
+    }
+
+    private void launchApkInstaller(File apkFile) {
+        try {
+            Uri apkUri = FileProvider.getUriForFile(
+                    MainActivity.this,
+                    getPackageName() + ".fileprovider",
+                    apkFile
+            );
+            Intent installIntent = new Intent(Intent.ACTION_VIEW);
+            installIntent.setDataAndType(apkUri, "application/vnd.android.package-archive");
+            installIntent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK | Intent.FLAG_GRANT_READ_URI_PERMISSION);
+            startActivity(installIntent);
+        } catch (Exception e) {
+            Toast.makeText(MainActivity.this, "Saved " + apkFile.getName() + " to app Downloads", Toast.LENGTH_LONG).show();
+        }
+    }
+
+    private boolean shouldOpenInChrome(Uri uri) {
+        String host = uri.getHost() != null ? uri.getHost().toLowerCase() : "";
+        String full = uri.toString().toLowerCase();
+        if (host.endsWith("uptodown.com")
+                || host.endsWith("apkpure.com")
+                || host.endsWith("indusappstore.com")
+                || host.endsWith("phonepeappstore.com")
+                || host.endsWith("amazon.com")
+                || host.endsWith("samsungapps.com")
+                || host.endsWith("itch.io")
+                || host.endsWith("huawei.com")
+                || host.endsWith("f-droid.org")) {
+            return true;
+        }
+        return "github.com".equals(host) && (full.contains("/settings")
+                || full.contains("/actions")
+                || full.contains("/login"));
+    }
+
+    private void openInChromeBrowser(Uri uri) {
+        try {
+            Intent chromeIntent = new Intent(Intent.ACTION_VIEW, uri);
+            chromeIntent.setPackage("com.android.chrome");
+            chromeIntent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
+            startActivity(chromeIntent);
+        } catch (Exception e) {
+            openExternalUri(uri);
+        }
+    }
+
     private class AndroidBridge {
+        @JavascriptInterface
+        public void openInChrome(String url) {
+            runOnUiThread(() -> openInChromeBrowser(Uri.parse(url)));
+        }
+
+        @JavascriptInterface
+        public void downloadAndInstallApk(String downloadUrl, String filename, String authHeader) {
+            startNativeApkDownloadAndInstall(downloadUrl, filename, authHeader != null ? authHeader : "");
+        }
+
         @JavascriptInterface
         public void saveBase64File(String base64Data, String filename, String mimeType) {
             runOnUiThread(() -> {
@@ -276,15 +414,7 @@ public class MainActivity extends AppCompatActivity {
                     }
                     if (safeName.toLowerCase().endsWith(".apk")
                             || (mimeType != null && mimeType.contains("android.package-archive"))) {
-                        Uri apkUri = FileProvider.getUriForFile(
-                                MainActivity.this,
-                                getPackageName() + ".fileprovider",
-                                outFile
-                        );
-                        Intent installIntent = new Intent(Intent.ACTION_VIEW);
-                        installIntent.setDataAndType(apkUri, "application/vnd.android.package-archive");
-                        installIntent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK | Intent.FLAG_GRANT_READ_URI_PERMISSION);
-                        startActivity(installIntent);
+                        launchApkInstaller(outFile);
                     } else {
                         Toast.makeText(MainActivity.this, "Saved " + safeName, Toast.LENGTH_SHORT).show();
                     }
