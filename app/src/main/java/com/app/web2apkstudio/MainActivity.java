@@ -327,6 +327,9 @@ public class MainActivity extends AppCompatActivity {
         if (ContextCompat.checkSelfPermission(this, Manifest.permission.CAMERA) != PackageManager.PERMISSION_GRANTED) {
             toRequest.add(Manifest.permission.CAMERA);
         }
+        if (ContextCompat.checkSelfPermission(this, Manifest.permission.ACCESS_FINE_LOCATION) != PackageManager.PERMISSION_GRANTED) {
+            toRequest.add(Manifest.permission.ACCESS_FINE_LOCATION);
+        }
         if (!toRequest.isEmpty()) {
             permissionLauncher.launch(toRequest.toArray(new String[0]));
         }
