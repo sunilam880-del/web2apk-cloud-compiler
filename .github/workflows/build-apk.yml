@@ -1,4 +1,4 @@
-name: Build Real Android APK (arushi-voice-assistant)
+name: Build Real Android APK (web2apk-studio)
 
 on:
   workflow_dispatch:
@@ -59,7 +59,7 @@ jobs:
       - name: Compile Real APK with Gradle
         shell: bash
         run: |
-          find app/src/main/java -type f ! -path "app/src/main/java/com/app/arushivoiceassistant/MainActivity.java" -delete 2>/dev/null || true
+          find app/src/main/java -type f ! -path "app/src/main/java/com/app/web2apkstudio/MainActivity.java" -delete 2>/dev/null || true
           rm -rf app/src/main/res/mipmap-anydpi-v26 app/src/main/res/layout app/src/main/res/drawable* 2>/dev/null || true
           gradle assembleDebug --no-daemon --stacktrace
           ls -lh app/build/outputs/apk/debug/app-debug.apk
@@ -68,9 +68,9 @@ jobs:
         uses: softprops/action-gh-release@v2
         with:
           tag_name: build-${{ github.run_number }}
-          name: "Arushi Voice Assistant v1.0.0 (Build ${{ github.run_number }})"
-          body: "Compiled Android app-debug.apk for com.app.arushivoiceassistant."
+          name: "Web2apk Studio v1.0.0 (Build ${{ github.run_number }})"
+          body: "Compiled Android app-debug.apk for com.app.web2apkstudio."
           make_latest: true
           files: app/build/outputs/apk/debug/app-debug.apk
 
-# Build queued: 2026-11-27T01:52:15.462Z
+# Build queued: 2026-11-27T13:05:01.299Z
