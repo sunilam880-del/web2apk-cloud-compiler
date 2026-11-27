@@ -10,7 +10,7 @@ android {
         applicationId 'com.app.web2apkstudio'
         minSdk 24
         targetSdk 34
-        versionCode 30
+        versionCode 31
         versionName '1.0.0'
     }
 
