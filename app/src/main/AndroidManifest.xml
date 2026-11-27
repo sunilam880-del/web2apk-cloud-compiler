@@ -35,7 +35,7 @@
             android:hardwareAccelerated="true"
             android:label="Arushi Voice Assistant"
             android:launchMode="singleTask"
-            android:screenOrientation="portrait"
+            android:screenOrientation="unspecified"
             android:windowSoftInputMode="adjustResize">
             <intent-filter>
                 <action android:name="android.intent.action.MAIN" />
