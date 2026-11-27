@@ -2,17 +2,23 @@ package com.app.web2apkstudio;
 
 import android.Manifest;
 import android.annotation.SuppressLint;
+import android.app.DownloadManager;
+import android.content.Context;
 import android.content.Intent;
 import android.content.pm.PackageManager;
 import android.graphics.Color;
 import android.net.Uri;
 import android.os.Build;
 import android.os.Bundle;
+import android.os.Environment;
+import android.util.Base64;
 import android.view.View;
 import android.view.ViewGroup;
 import android.view.WindowManager;
 import android.webkit.CookieManager;
+import android.webkit.JavascriptInterface;
 import android.webkit.PermissionRequest;
+import android.webkit.URLUtil;
 import android.webkit.ValueCallback;
 import android.webkit.WebChromeClient;
 import android.webkit.WebResourceError;
@@ -21,15 +27,19 @@ import android.webkit.WebSettings;
 import android.webkit.WebView;
 import android.webkit.WebViewClient;
 import android.widget.FrameLayout;
+import android.widget.Toast;
 import androidx.activity.OnBackPressedCallback;
 import androidx.activity.result.ActivityResultLauncher;
 import androidx.activity.result.contract.ActivityResultContracts;
 import androidx.annotation.NonNull;
 import androidx.appcompat.app.AppCompatActivity;
 import androidx.core.content.ContextCompat;
+import androidx.core.content.FileProvider;
 import androidx.core.view.WindowCompat;
 import androidx.core.view.WindowInsetsCompat;
 import androidx.core.view.WindowInsetsControllerCompat;
+import java.io.File;
+import java.io.FileOutputStream;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.List;
@@ -93,6 +103,7 @@ public class MainActivity extends AppCompatActivity {
 
         configureWebSettings(webView.getSettings());
         configureWebClients();
+        configureNativeDownloadSupport();
         requestRequiredRuntimePermissions();
         setupBackNavigation();
 
@@ -128,7 +139,7 @@ public class MainActivity extends AppCompatActivity {
         settings.setDisplayZoomControls(false);
         settings.setCacheMode(WebSettings.LOAD_DEFAULT);
         settings.setMixedContentMode(WebSettings.MIXED_CONTENT_NEVER_ALLOW);
-        // Uses standard Android WebView mobile User-Agent
+        settings.setUserAgentString("Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36");
 
         CookieManager cookieManager = CookieManager.getInstance();
         cookieManager.setAcceptCookie(true);
@@ -213,6 +224,75 @@ public class MainActivity extends AppCompatActivity {
                 }
             }
         });
+    }
+
+    @SuppressLint("JavascriptInterface")
+    private void configureNativeDownloadSupport() {
+        webView.addJavascriptInterface(new AndroidBridge(), "AndroidBridge");
+        webView.setDownloadListener((url, userAgent, contentDisposition, mimeType, contentLength) -> {
+            try {
+                if (url != null && (url.startsWith("http://") || url.startsWith("https://"))) {
+                    String fileName = URLUtil.guessFileName(url, contentDisposition, mimeType);
+                    DownloadManager.Request request = new DownloadManager.Request(Uri.parse(url));
+                    request.setMimeType(mimeType != null ? mimeType : "application/vnd.android.package-archive");
+                    request.addRequestHeader("User-Agent", userAgent);
+                    String cookies = CookieManager.getInstance().getCookie(url);
+                    if (cookies != null && !cookies.isEmpty()) {
+                        request.addRequestHeader("Cookie", cookies);
+                    }
+                    request.setTitle(fileName);
+                    request.setDescription("Downloading file...");
+                    request.setNotificationVisibility(DownloadManager.Request.VISIBILITY_VISIBLE_NOTIFY_COMPLETED);
+                    request.setDestinationInExternalPublicDir(Environment.DIRECTORY_DOWNLOADS, fileName);
+                    DownloadManager dm = (DownloadManager) getSystemService(Context.DOWNLOAD_SERVICE);
+                    if (dm != null) {
+                        dm.enqueue(request);
+                        Toast.makeText(this, "Downloading " + fileName + "...", Toast.LENGTH_SHORT).show();
+                    }
+                }
+            } catch (Exception ignored) {
+                Toast.makeText(this, "Download started", Toast.LENGTH_SHORT).show();
+            }
+        });
+    }
+
+    private class AndroidBridge {
+        @JavascriptInterface
+        public void saveBase64File(String base64Data, String filename, String mimeType) {
+            runOnUiThread(() -> {
+                try {
+                    String cleanB64 = base64Data.contains(",")
+                            ? base64Data.substring(base64Data.indexOf(",") + 1)
+                            : base64Data;
+                    byte[] bytes = Base64.decode(cleanB64, Base64.DEFAULT);
+                    String safeName = filename.replaceAll("[^a-zA-Z0-9._-]", "_");
+                    File downloadsDir = getExternalFilesDir(Environment.DIRECTORY_DOWNLOADS);
+                    if (downloadsDir == null) {
+                        downloadsDir = getCacheDir();
+                    }
+                    File outFile = new File(downloadsDir, safeName);
+                    try (FileOutputStream fos = new FileOutputStream(outFile)) {
+                        fos.write(bytes);
+                    }
+                    if (safeName.toLowerCase().endsWith(".apk")
+                            || (mimeType != null && mimeType.contains("android.package-archive"))) {
+                        Uri apkUri = FileProvider.getUriForFile(
+                                MainActivity.this,
+                                getPackageName() + ".fileprovider",
+                                outFile
+                        );
+                        Intent installIntent = new Intent(Intent.ACTION_VIEW);
+                        installIntent.setDataAndType(apkUri, "application/vnd.android.package-archive");
+                        installIntent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK | Intent.FLAG_GRANT_READ_URI_PERMISSION);
+                        startActivity(installIntent);
+                    } else {
+                        Toast.makeText(MainActivity.this, "Saved " + safeName, Toast.LENGTH_SHORT).show();
+                    }
+                } catch (Exception e) {
+                    Toast.makeText(MainActivity.this, "Unable to save " + filename, Toast.LENGTH_SHORT).show();
+                }
+            });
+        }
     }
 
     private void grantSupportedWebPermissions(PermissionRequest request) {
